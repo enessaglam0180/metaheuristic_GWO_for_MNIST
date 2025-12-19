@@ -6,32 +6,37 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import time
+import os 
 
-# --- 1. AYARLAR & GLOBAL DEĞİŞKENLER ---
-N_AGENTS = 8       # Ajan sayısı
-K_NEIGHBORS = 5    # KNN komşu sayısı
-current_iter = 10  # Varsayılan iterasyon kjllhıu
+N_AGENTS = 8       
+K_NEIGHBORS = 5    
+current_iter = 10  
 
-# --- 2. VERİ YÜKLEME ---
-print("Veri hazırlanıyor...")
+print(">> Veri hazırlanıyor...")
 
+try:
+    
+    df = pd.read_csv('mnist_test.csv', header=None)
+    y = df.iloc[:, 0].values     
+    x = df.iloc[:, 1:].values    
+except FileNotFoundError:
+    print("HATA: 'mnist_test.csv' dosyası bulunamadı! Lütfen proje klasörüne ekleyin.")
+    exit()
 
-# Hız için örneklem (Sample)
+# Runtime efficiency için subsampling
 sample_size = 800
-if len(X) > sample_size:
-    X = X[:sample_size]
+if len(x) > sample_size:
+    x = x[:sample_size]
     y = y[:sample_size]
 
-# Normalizasyon (Önemli)
-X = X / 16.0  # Digits verisi 0-16 arasındadır.
+x = x / 255.0  
 
-# Veriyi Böl
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
 dim = X_train.shape[1]
 
-print(f"Veri Hazır: {dim} Özellik, {len(X)} Örnek.")
+print(f">> Veri Hazır: {dim} Özellik, {len(x)} Örnek işleniyor.")
 
-# --- 3. FITNESS FONKSİYONU ---
+
 def calculate_fitness(mask):
     if np.sum(mask) == 0: return 1.0
     
@@ -47,7 +52,7 @@ def calculate_fitness(mask):
     cost = 0.99 * error + 0.01 * ratio 
     return cost
 
-# --- 4. ALGORİTMALAR ---
+# ALGORİTMALAR
 
 class GWO:
     def __init__(self, iterations):
@@ -167,23 +172,20 @@ class PSO:
                 
         return history, int(np.sum(gbest_pos))
 
-# --- 5. GUI VE ÇİZİM ---
-
-# Grafik Alanını Ayarla
-fig, ax = plt.subplots(figsize=(12, 7)) # Grafik alanını biraz genişlettik
-plt.subplots_adjust(bottom=0.25) # Alt kısımda Widgetler için yer aç
-
-plot_lines = [] # Çizgileri tutmak için
+# GUI & Simülasyon
+fig, ax = plt.subplots(figsize=(12, 7)) 
+plt.subplots_adjust(bottom=0.25)
 
 def run_simulation(val):
     global current_iter
     
-    # Textbox'tan gelen değeri al (String gelir)
     try:
-        if isinstance(val, str):
-            iters = int(val)
-        else:
-            iters = int(text_box.text) # Butona basıldıysa buradan al
+        if isinstance(val, str): 
+             iters = int(text_box.text)
+        elif hasattr(val, 'text'):
+             iters = int(val)
+        else: 
+             iters = int(text_box.text)
             
         if iters <= 0: raise ValueError
         current_iter = iters
@@ -193,9 +195,9 @@ def run_simulation(val):
 
     print(f"\n--- Simülasyon Başlıyor (İterasyon: {current_iter}) ---")
     ax.clear()
-    ax.set_title(f'Yarış Sürüyor... İterasyon: {current_iter} (Hesaplama Yapılıyor)', color='red')
+    ax.set_title(f'Yarış Sürüyor... İterasyon: {current_iter} (Lütfen Bekleyiniz)', color='red')
     plt.draw()
-    plt.pause(0.01) # UI güncellensin diye kısa mola
+    plt.pause(0.01) 
     
     algos = [GWO(current_iter), GA(current_iter), PSO(current_iter)]
     colors = ['r', 'g', 'b']
@@ -204,57 +206,79 @@ def run_simulation(val):
     best_cost = float("inf")
     summary_text = "SKOR TABLOSU:\n" + "-"*30 + "\n"
     
+    
+    run_results = []
+    
     for algo, col in zip(algos, colors):
+        print(f"> {algo.name} Çalışıyor...")
         start_time = time.time()
         history, feat_cnt = algo.run()
         elapsed = time.time() - start_time
         
         final_cost = history[-1]
         
-        # En iyiyi tespit et
         if final_cost < best_cost:
             best_cost = final_cost
             best_algo_name = algo.name
             
-        label_txt = f"{algo.name} (Cost: {final_cost:.4f})"
-        print(f"> {algo.name} Bitti. Cost={final_cost:.4f} | Süre={elapsed:.2f}s | Özellik={feat_cnt}")
+        label_txt = f"{algo.name}"
+        print(f"  -> Bitti. Cost={final_cost:.4f} | Süre={elapsed:.2f}s | Özellik={feat_cnt}")
         
-        # Tabloya ekle
         summary_text += f"{algo.name:<15} : {final_cost:.4f} (Seçim: {feat_cnt})\n"
         
         ax.plot(history, label=label_txt, color=col, marker='o', markersize=4, linewidth=2)
+        
+    
+        run_results.append({
+            "Tarih": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "İterasyon": current_iter,
+            "Algoritma": algo.name,
+            "Cost (Hata+Oran)": final_cost,
+            "Seçilen Özellik": feat_cnt,
+            "Süre (sn)": round(elapsed, 2)
+        })
 
-    # Kazananı Ekrana Bas
     print(f"\n*** KAZANAN: {best_algo_name} ***")
     
-    # Grafik Başlığına Yaz
     ax.set_title(f'SONUÇ: Kazanan {best_algo_name} (Cost: {best_cost:.4f})', fontsize=12, fontweight='bold', color='darkblue')
     
     ax.set_xlabel('İterasyon')
-    ax.set_ylabel('Cost (Hata + Özellik Sayısı)')
+    ax.set_ylabel('Cost')
     ax.legend(loc='upper right', frameon=True)
     ax.grid(True, linestyle='--', alpha=0.6)
     
-    # Grafik üzerine detaylı bilgi kutusu ekle (Sol Üst)
     props = dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='gray')
     ax.text(0.02, 0.95, summary_text, transform=ax.transAxes, fontsize=10,
         verticalalignment='top', bbox=props, fontfamily='monospace')
-        
+    
     plt.draw()
 
-# --- WIDGETLER ---
 
-# 1. Textbox (İterasyon Sayısı için)
-axbox = plt.axes([0.15, 0.1, 0.2, 0.05]) # [sol, alt, genişlik, yükseklik]
+    excel_filename = "simulasyon_sonuclari.xlsx"
+    df_new = pd.DataFrame(run_results)
+    
+    if os.path.exists(excel_filename):
+        try:
+            
+            df_existing = pd.read_excel(excel_filename)
+            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+            df_combined.to_excel(excel_filename, index=False)
+            print(f">> Sonuçlar başarıyla '{excel_filename}' dosyasına EKLENDİ.")
+        except Exception as e:
+            print(f"!! Excel'e ekleme hatası: {e}. Dosya açık olabilir mi?")
+    else:
+   
+        df_new.to_excel(excel_filename, index=False)
+        print(f">> Yeni dosya oluşturuldu ve sonuçlar '{excel_filename}' dosyasına kaydedildi.")
+
+
+axbox = plt.axes([0.15, 0.1, 0.2, 0.05])
 text_box = TextBox(axbox, 'Max İter:', initial=str(current_iter))
+text_box.on_submit(run_simulation) 
 
-# 2. Buton (Çalıştırmak için)
 axbtn = plt.axes([0.4, 0.1, 0.2, 0.05])
 btn = Button(axbtn, 'Yarışı Başlat', color='lightblue', hovercolor='0.975')
+btn.on_clicked(run_simulation) 
 
-# Butona tıklanınca çalışacak fonksiyonu bağla
-btn.on_clicked(run_simulation)
 
-print("Arayüz açıldı. İterasyon sayısını girip 'Yarışı Başlat'a bas.")
 plt.show()
-
